@@ -52,9 +52,11 @@ dsh plugin --profile web add github:liyiersan/dsh-usage-monitor
 dsh plugin --profile web add /path/to/dsh-usage-monitor
 ```
 
-### 2. 在 profile patch 中插入插件
+本仓库声明了 `dsh.bundle.patch`。DSH 支持该 manifest 时会在安装时自动应用 `cordis.patch.yml`，把插件插入 profile 配置树，通常不需要手动改配置。
 
-编辑 `$DSH_HOME/profiles/web/cordis.patch.yml`（默认 `~/.dsh/profiles/web/cordis.patch.yml`），加入：
+### 2. 手动安装 / 兜底
+
+如果当前 DSH 版本没有自动应用 bundle patch，编辑 `$DSH_HOME/profiles/web/cordis.patch.yml`（默认 `~/.dsh/profiles/web/cordis.patch.yml`），加入：
 
 ```yaml
 - insert:
@@ -80,7 +82,7 @@ dsh web
 dsh plugin --profile web remove @local/dsh-usage-monitor
 ```
 
-然后从 `cordis.patch.yml` 删除对应 `insert` 条目。可选手动删除本地账本：
+如果你之前是手动加入 `insert` 条目，请再从 `cordis.patch.yml` 中删除；自动 bundle 安装通常由 `dsh plugin remove` 一并处理。可选手动删除本地账本：
 
 ```sh
 rm -rf "$DSH_HOME/usage-monitor"

@@ -17,6 +17,9 @@
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
     }
   },
   "scripts": {
@@ -31,7 +34,8 @@
     "usage",
     "balance",
     "pricing",
-    "plugin"
+    "plugin",
+    "dsh-plugin"
   ],
   "homepage": "https://github.com/liyiersan/dsh-usage-monitor#readme",
   "repository": {

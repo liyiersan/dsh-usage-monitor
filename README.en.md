@@ -52,9 +52,11 @@ You can also install from a local checkout:
 dsh plugin --profile web add /path/to/dsh-usage-monitor
 ```
 
-### 2. Insert the plugin row into the profile patch
+This repository declares `dsh.bundle.patch`. On DSH versions that support the manifest, the install command applies `cordis.patch.yml` automatically and inserts the plugin into the profile composition, so you normally do not need to edit the profile patch by hand.
 
-Edit `$DSH_HOME/profiles/web/cordis.patch.yml` (default: `~/.dsh/profiles/web/cordis.patch.yml`) and add:
+### 2. Manual install / fallback
+
+If your DSH version does not apply the bundle patch automatically, edit `$DSH_HOME/profiles/web/cordis.patch.yml` (default: `~/.dsh/profiles/web/cordis.patch.yml`) and add:
 
 ```yaml
 - insert:
@@ -80,7 +82,7 @@ Open any conversation. You should see the **Usage** tab in the conversation view
 dsh plugin --profile web remove @local/dsh-usage-monitor
 ```
 
-Then remove the matching `insert` entry from `cordis.patch.yml`. Optionally delete the local ledger:
+If you added the `insert` entry manually, remove it from `cordis.patch.yml`; a bundle install is normally cleaned up by `dsh plugin remove`. Optionally delete the local ledger:
 
 ```sh
 rm -rf "$DSH_HOME/usage-monitor"

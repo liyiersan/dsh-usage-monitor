@@ -1,0 +1,7 @@
+# Loader patch for the dsh-usage-monitor bundle.
+# Applied automatically by `dsh plugin --profile web add <package>` on DSH
+# versions that support the dsh.bundle manifest. You can also copy this
+# insert row into your own profile patch manually.
+- insert:
+    - id: usage-monitor
+      name: '@local/dsh-usage-monitor'
