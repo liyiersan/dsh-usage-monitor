@@ -1,0 +1,47 @@
+{
+  "name": "@local/dsh-usage-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH plugin: show DeepSeek API pricing, token usage/cost and account balance inside DeepSeek Harness (DSH).",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node test/pricing.test.mjs",
+    "test:client": "node scripts/client-check.mjs"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek",
+    "dsh",
+    "deepseek-harness",
+    "usage",
+    "balance",
+    "pricing",
+    "plugin"
+  ],
+  "homepage": "https://github.com/liyiersan/dsh-usage-monitor#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liyiersan/dsh-usage-monitor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/liyiersan/dsh-usage-monitor/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
