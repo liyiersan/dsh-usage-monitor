@@ -9,7 +9,7 @@
 
 ![DSH 用量面板](docs/screenshots/usage-view.png)
 
-> 截图使用演示数据，不代表任何真实账户。
+> 截图取自**真实的 DSH Web 页面**（用 Playwright 驱动本机 Chrome 渲染），只把插件接口替换为演示数据——界面结构、插件 DOM 与样式都是真实的；账户余额、会话用量与会话名均为演示值。
 
 ## 功能
 

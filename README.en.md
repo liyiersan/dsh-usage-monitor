@@ -9,7 +9,7 @@ English | [简体中文](README.md)
 
 ![DSH usage panel](docs/screenshots/usage-view.png)
 
-> Screenshots use demo data and do not represent any real account.
+> Screenshots are rendered from the **real DSH web page** (Playwright driving a local Chrome); only the plugin endpoints are stubbed with demo data, so the UI structure, plugin DOM and styles are genuine while the balance, usage figures and session name are demo values.
 
 ## Features
 
