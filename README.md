@@ -159,7 +159,9 @@ node scripts/smoke.mjs   # 服务端冒烟测试（会查询真实余额接口�
 
 `scripts/smoke.mjs` 会使用临时 `DSH_HOME`，不会污染真实账本；它会从本地 DSH 凭据文件或环境变量读取 key，但只打印 key 长度，不打印 key 本身。
 
-> **改动客户端后需要重启 DSH**：`/plugins/<id>/client.js` 由 DSH 的客户端模块表提供，该表在 DSH 启动时建立并缓存内容 —— 只刷新浏览器页面拿到的仍是上次启动时的副本。修改 `lib/client.js` 后请重启 DSH 再验证，否则会误判为"没生效"。
+> **改动客户端后只需刷新页面**（DSH `0.1.5-rc.1` 实测）：`/plugins/<id>/client.js` 由 DSH 的客户端模块表提供，该表在 DSH 运行时监听插件文件，内容变化会重新计算 bundle 的 `rev` 并按新 URL 提供（`dsh-client-modules` 的 `rebuilt()` 钩子），所以刷新浏览器页面就能拿到新副本，不必重启 DSH。若你在 DSH **停止时**修改了 `lib/client.js`，下次启动本就会读取新内容；验证时如仍看到旧行为，先确认浏览器加载的 bundle URL 里 `rev=` 是否已变化。
+>
+> 注意：本插件的**服务端半**（`lib/index.js`）不会热更新，改动它必须重启 DSH。
 
 ## 兼容性
 

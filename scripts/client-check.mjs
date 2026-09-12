@@ -538,6 +538,106 @@ console.log('\n[10] 本会话花费取账本金额（切换模型不跳变）');
 	);
 }
 
+// ── 11. 面板刷新与 dock 条共享同一份仪表盘（本次修复） ──────────────────
+console.log('\n[11] 面板刷新同时更新 dock 条（共享仪表盘 store）');
+{
+	const store = exportsObject.__internal?.dashboardStore;
+	check('导出了共享仪表盘 store', store !== undefined && typeof store?.load === 'function');
+	if (store !== undefined) {
+		const panel = slotRegistrations.find((r) => r.options.name === 'conversation.view');
+		const dock = slotRegistrations.find((r) => r.options.name === 'conversation.input.dock');
+		/** dock 条直接渲染文本，扁平化即可。 */
+		const renderText = (reg, sessionId) =>
+			flattenText(
+				reg.component({
+					...(reg.options.inject ? reg.options.inject(sessionId) : {}),
+					useProjection: () => usageProjection,
+					sessionId,
+				}),
+			);
+		/**
+		 * 面板的「账户余额」走自定义 Card 组件；mock 的 createElement 把 props 原样
+		 * 保留（不调用 Card），所以金额要从卡片 props.value 上读，而不是扁平文本。
+		 * @returns {string} 面板余额卡片显示的值。
+		 */
+		const panelBalance = (sessionId) => {
+			const tree = panel.component({
+				...(panel.options.inject ? panel.options.inject(sessionId) : {}),
+				useProjection: () => usageProjection,
+				sessionId,
+			});
+			const cards = (tree.children ?? []).find((child) => child?.props?.className === 'umsm-cards');
+			const card = (cards?.children ?? []).find((child) => child?.props?.label === '账户余额');
+			return card?.props?.value ?? '(未渲染余额卡片)';
+		};
+		/** 造一份仪表盘数据：余额取给定值，会话与累计固定。 */
+		const dashboardWith = (total) => ({
+			ok: true,
+			now: '2026-09-02T02:00:00.000Z',
+			balance: { state: 'ok', currency: 'CNY', total, granted: 0, toppedUp: total },
+			pricing: {},
+			tier: { peak: false, label: '空闲时段（半价）' },
+			totals: { costCNY: 11.54, sessionCount: 5, tokenTotal: 194_690_000 },
+			session: { id: 's-shared', model: 'deepseek-flash', costCNY: 0.39, usage: null, byModel: null },
+		});
+
+		// 场景：余额被外部充值/消费后，面板与 dock 条必须显示同一个数字。
+		store.reset();
+		store.set(dashboardWith(7.89));
+		const panelBefore = panelBalance('s-shared');
+		const dockBefore = renderText(dock, 's-shared');
+		check(
+			'起点：面板与 dock 条显示同一个余额 ¥7.89',
+			panelBefore === '¥7.89' && dockBefore.includes('¥7.89'),
+			`panel=${panelBefore} dock含¥7.89=${dockBefore.includes('¥7.89')}`,
+		);
+
+		store.set(dashboardWith(5.21));
+		const panelAfter = panelBalance('s-shared');
+		const dockAfter = renderText(dock, 's-shared');
+		check('刷新后：面板显示新余额 ¥5.21', panelAfter === '¥5.21', panelAfter);
+		check(
+			'刷新后：dock 条同时显示新余额 ¥5.21（不再各持一份 state）',
+			dockAfter.includes('¥5.21') && !dockAfter.includes('¥7.89'),
+			dockAfter.match(/¥[0-9.]+/g)?.slice(0, 4).join(' '),
+		);
+
+		// 订阅面：两处挂载点都要订阅 store，才能被同一个刷新事件唤醒。
+		const listenersBefore = storeListeners.length;
+		panelBalance('s-shared');
+		renderText(dock, 's-shared');
+		const listenersAfter = storeListeners.length;
+		check('面板与 dock 条都订阅了共享 store', listenersAfter > listenersBefore, `${listenersBefore} → ${listenersAfter}`);
+
+		// 真实刷新路径：面板「刷新」按钮 → store.load(force) → 服务端新余额 → dock 条跟着变。
+		// 先把首屏取数排空，再清空调用记录，这样断言只统计这一次刷新。
+		const settle = () => new Promise((resolve) => setImmediate(resolve));
+		await settle();
+		fetchCalls.length = 0;
+		await store.load('s-shared', true);
+		await settle();
+		const forced = fetchCalls.filter((c) => c.url.includes('/usage-monitor/data'));
+		check(
+			'刷新按钮走 force=1 的取数',
+			forced.some((c) => c.url.includes('force=1') && c.url.includes('sessionId=s-shared')),
+			forced.map((c) => c.url).join(' '),
+		);
+		const panelAfterLoad = panelBalance('s-shared');
+		const dockAfterRefresh = renderText(dock, 's-shared');
+		check('经 store.load 刷新后面板取到服务端新余额 ¥12.34', panelAfterLoad === '¥12.34', panelAfterLoad);
+		check('经 store.load 刷新后 dock 条同步到新余额 ¥12.34', dockAfterRefresh.includes('¥12.34'), dockAfterRefresh.match(/¥[0-9.]+/g)?.slice(0, 4).join(' '));
+
+		// 并发合并：两个挂载点同时取数不应产生两次真实请求。
+		await settle();
+		fetchCalls.length = 0;
+		const [a, b] = await Promise.all([store.load('s-shared'), store.load('s-shared')]);
+		await settle();
+		const dataCalls = fetchCalls.filter((c) => c.url.includes('/usage-monitor/data'));
+		check('并发取数合并为一次请求', dataCalls.length === 1, `实际 ${dataCalls.length}`);
+		check('并发取数返回同一份数据', a === b, typeof a === 'object' ? 'ok' : String(a));
+	}
+}
+
 // 释放 React effect（清理各组件注册的定时器，避免挂住进程）
 for (const cleanup of pendingEffects.splice(0)) {
 	try {
