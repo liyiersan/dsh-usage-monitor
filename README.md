@@ -159,6 +159,8 @@ node scripts/smoke.mjs   # 服务端冒烟测试（会查询真实余额接口�
 
 `scripts/smoke.mjs` 会使用临时 `DSH_HOME`，不会污染真实账本；它会从本地 DSH 凭据文件或环境变量读取 key，但只打印 key 长度，不打印 key 本身。
 
+> **改动客户端后需要重启 DSH**：`/plugins/<id>/client.js` 由 DSH 的客户端模块表提供，该表在 DSH 启动时建立并缓存内容 —— 只刷新浏览器页面拿到的仍是上次启动时的副本。修改 `lib/client.js` 后请重启 DSH 再验证，否则会误判为"没生效"。
+
 ## 兼容性
 
 当前版本在 DSH `0.1.5-rc.1` 的 `web` profile 上验证（2026-09），同时兼容 `0.1.1-rc.2`（客户端槽位与模型解析接口一致）。DSH 客户端 API 仍可能变化，升级 DSH 后如发现槽位或模型解析接口变化，请提交 issue 或 PR。

@@ -159,6 +159,8 @@ node scripts/smoke.mjs   # host smoke test (queries the real balance API)
 
 `scripts/smoke.mjs` uses a temporary `DSH_HOME`, so it does not pollute your real ledger. It reads the key from the local DSH credentials file or the environment, but only prints the key length, never the key itself.
 
+> **Restart DSH after changing the client half**: `/plugins/<id>/client.js` is served from DSH's client module table, which is built and cached at startup — a browser refresh alone returns the copy from the last start. After editing `lib/client.js`, restart DSH before verifying, or you will misread a cached build as "the change did not work".
+
 ## Compatibility
 
 This version was verified against DSH `0.1.5-rc.1` with the `web` profile (September 2026) and also works on `0.1.1-rc.2` (client slots and model-resolution APIs are unchanged). DSH client APIs may still evolve; if slots or model-resolution APIs change after a DSH upgrade, please open an issue or a PR.
