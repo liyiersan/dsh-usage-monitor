@@ -14,8 +14,9 @@ English | [简体中文](README.md)
 ## Features
 
 - **Account balance**: queries `GET https://api.deepseek.com/user/balance` and shows total, topped-up, and granted balance. Cached for 60 seconds by default with manual refresh.
-- **Current session cost**: reads the DSH `tokenUsage` projection and estimates cost in real time across four token buckets: cache hit, cache miss, cache write, and output.
-- **Cumulative cost**: a local ledger records usage across sessions, using incremental pricing so peak/off-peak changes are accounted for accurately.
+- **Current session cost**: shows the **already-priced** amount from the host ledger — each increment is priced with the model and peak/off-peak tier in effect at that moment, so **switching models never makes the number jump**; when the ledger has no record yet it falls back to a local estimate and marks it as such in the UI.
+- **Per-model breakdown**: the ledger buckets tokens and cost per model, and the panel lists how much Flash and V4-Pro each used and cost.
+- **Cumulative cost**: a local ledger records usage across sessions, using incremental pricing so peak/off-peak changes are accounted for accurately; reporting rides the always-rendered dock strip, so the ledger keeps updating **even while the panel stays closed**.
 - **Official pricing**: built-in `deepseek-flash` and `deepseek-v4-pro` prices with automatic peak/off-peak tier selection.
 - **Two UI entry points**:
   - a full **Usage** tab in the conversation view;
@@ -107,7 +108,7 @@ Billing rules:
 - `cacheWrite` is not listed separately by the official docs, so this project conservatively charges it at the cache-miss price;
 - model names containing `pro`, `chat`, or `reasoner` are normalized to V4-Pro; names containing `flash` are normalized to Flash; unknown models fall back to Flash and are marked as an estimate in the UI.
 
-> Costs are estimated locally and should match the official billing model, though tiny rounding differences are possible. DeepSeek prices may change; when updating, keep `lib/pricing.js` and the inline pricing copy in `lib/client.js` in sync.
+> Token counts come from the provider's exact usage; costs are derived by the local ledger with incremental pricing, matching the official billing model with only tiny rounding differences (tier attribution uses the moment of each report). DeepSeek prices may change; when updating, keep `lib/pricing.js` and the inline pricing copy in `lib/client.js` in sync.
 
 ## How it works
 
@@ -160,14 +161,14 @@ node scripts/smoke.mjs   # host smoke test (queries the real balance API)
 
 ## Compatibility
 
-This version was developed and verified against DSH `0.1.1-rc.2` with the `web` profile (September 2026). DSH client APIs may still evolve; if slots or model-resolution APIs change after a DSH upgrade, please open an issue or a PR.
+This version was verified against DSH `0.1.5-rc.1` with the `web` profile (September 2026) and also works on `0.1.1-rc.2` (client slots and model-resolution APIs are unchanged). DSH client APIs may still evolve; if slots or model-resolution APIs change after a DSH upgrade, please open an issue or a PR.
 
 ## Security & Privacy
 
 - No telemetry is collected or uploaded.
 - The plugin does not store the API key; the key is provided only by the DSH credentials service or the process environment.
 - Balance queries run on the host side and only target `https://api.deepseek.com/user/balance`.
-- The local ledger lives at `$DSH_HOME/usage-monitor/ledger.json` and records only session IDs and token usage; it is not committed to this repository.
+- The local ledger lives at `$DSH_HOME/usage-monitor/ledger.json` and records only session IDs, token usage, and per-model cost buckets; it is not committed to this repository.
 - The `/usage-monitor/*` endpoints are served by the DSH web server on loopback. `/usage-monitor/report` requires `Content-Type: application/json` to reduce CSRF risk.
 - If you fork this project, do not commit your local ledger, credentials file, or logs containing personal paths.
 

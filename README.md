@@ -14,8 +14,9 @@
 ## 功能
 
 - **账户余额**：查询 `GET https://api.deepseek.com/user/balance`，显示总余额、充值余额和赠金；默认 60 秒缓存，可手动刷新。
-- **本会话花费**：读取 DSH `tokenUsage` 投影，区分缓存命中、缓存未命中、写入缓存、输出四种 token 桶，按当前时段实时估算。
-- **累计花费**：本地账本记录跨会话用量，采用增量计价，跨高峰/空闲时段也能准确累计。
+- **本会话花费**：显示宿主账本里**已计价**的金额——按各阶段实际使用的模型与时段分别增量计价，因此**切换模型时数字不会跳变**；账本尚未记录该会话时退回本地估算，并在界面上标注「估算」。
+- **按模型明细**：账本按模型分桶记录 token 与金额，面板分别列出 Flash 与 V4-Pro 各自用掉多少、花了多少。
+- **累计花费**：本地账本记录跨会话用量，采用增量计价，跨高峰/空闲时段也能准确累计；用量由常驻的 dock 条上报，**不打开面板也会持续记录**。
 - **官方定价**：内置 `deepseek-flash` 与 `deepseek-v4-pro` 单价，自动区分高峰/空闲时段。
 - **两个入口**：
   - 对话主视图新增「用量」Tab，展示完整面板；
@@ -107,7 +108,7 @@ rm -rf "$DSH_HOME/usage-monitor"
 - `cacheWrite`（写入缓存）官方未单列，本项目按未命中单价保守计算；
 - 模型名包含 `pro`、`chat`、`reasoner` 时归入 V4-Pro；包含 `flash` 归入 Flash；无法识别时按 Flash 兜底并在界面标注。
 
-> 金额为本地估算，和官方账单口径一致，但可能有极小取整差异。DeepSeek 价格可能调整，更新时请同时修改 `lib/pricing.js` 和 `lib/client.js` 中内联的定价副本。
+> token 数量来自提供方的精确用量；金额由本地账本按增量计价得出，与官方账单口径一致，可能有极小取整差异（时段归属按上报时刻判定）。DeepSeek 价格可能调整，更新时请同时修改 `lib/pricing.js` 和 `lib/client.js` 中内联的定价副本。
 
 ## 工作原理
 
@@ -122,8 +123,8 @@ DSH Host (Node)
                                       └─ conversation.input.dock dock 条
 ```
 
-- `lib/index.js`：宿主半。解析凭据、查询余额、维护本地账本、暴露本地 HTTP 端点。
-- `lib/client.js`：浏览器半。注册 `conversation.view` 和 `conversation.input.dock` 两个槽位，读取并上报数据。
+- `lib/index.js`：宿主半。解析凭据、查询余额、维护本地账本（按会话 + 按模型分桶，增量计价）、暴露本地 HTTP 端点。
+- `lib/client.js`：浏览器半。注册 `conversation.view` 和 `conversation.input.dock` 两个槽位；dock 条是常驻上报点，面板另外展示账本的分桶明细。
 - `lib/pricing.js`：纯函数计费引擎，供宿主和测试使用。
 - 客户端内联了一份定价副本，避免浏览器运行时无法直接 import 服务端模块；修改价格时两处都要改。
 
@@ -160,14 +161,14 @@ node scripts/smoke.mjs   # 服务端冒烟测试（会查询真实余额接口�
 
 ## 兼容性
 
-当前版本在 DSH `0.1.1-rc.2` 的 `web` profile 上开发并验证（2026-09）。DSH 客户端 API 仍可能变化，升级 DSH 后如发现槽位或模型解析接口变化，请提交 issue 或 PR。
+当前版本在 DSH `0.1.5-rc.1` 的 `web` profile 上验证（2026-09），同时兼容 `0.1.1-rc.2`（客户端槽位与模型解析接口一致）。DSH 客户端 API 仍可能变化，升级 DSH 后如发现槽位或模型解析接口变化，请提交 issue 或 PR。
 
 ## 安全与隐私
 
 - 不收集、不上传遥测数据；
 - 插件本身不保存 API key；key 仅由 DSH credentials 服务或进程环境变量提供；
 - 余额查询只发生在宿主侧，目标为 `https://api.deepseek.com/user/balance`；
-- 本地账本保存于 `$DSH_HOME/usage-monitor/ledger.json`，只记录 session id 和 token 用量，不会提交到仓库；
+- 本地账本保存于 `$DSH_HOME/usage-monitor/ledger.json`，只记录 session id、token 用量及按模型分桶的金额，不会提交到仓库；
 - `/usage-monitor/*` 端点随 DSH webServer 监听回环地址；`/usage-monitor/report` 要求 `Content-Type: application/json`，用于降低 CSRF 风险；
 - 建议开源使用者不要把自己本地账本、凭据文件或包含个人路径的日志提交到 Git。
 

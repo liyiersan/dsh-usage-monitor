@@ -36,6 +36,8 @@ const windowMock = {
 		load: (registration) => registrations.push(registration),
 	},
 };
+/** 记录客户端发出的 HTTP 请求（用于验证用量上报确实发生）。 */
+const fetchCalls = [];
 /** 记录组件注册的定时器（用 mock 避免真实调度，并可断言清理彻底）。 */
 let timerSeq = 0;
 const liveTimers = new Map();
@@ -43,6 +45,7 @@ const context = vm.createContext({
 	window: windowMock,
 	console,
 	document: undefined,
+	encodeURIComponent,
 	setTimeout: (fn, ms) => {
 		const id = ++timerSeq;
 		liveTimers.set(id, { fn, ms, kind: 'timeout' });
@@ -55,8 +58,76 @@ const context = vm.createContext({
 		return id;
 	},
 	clearInterval: (id) => liveTimers.delete(id),
-	fetch: undefined,
+	fetch: (url, options) => {
+		fetchCalls.push({ url: String(url), options });
+		const isReport = String(url).includes('/usage-monitor/report');
+		return Promise.resolve({
+			ok: true,
+			status: 200,
+			// 上报响应只带 { ok, costCNY, totals }（服务端真实形状）
+			json: async () =>
+				isReport
+					? {
+							ok: true,
+							costCNY: 3.64,
+							// 按模型分桶（服务端新字段）
+							byModel: {
+								'deepseek-flash': {
+									usage: {
+										uncachedInputTokens: 60000,
+										cacheReadTokens: 1940000,
+										cacheWriteTokens: 0,
+										outputTokens: 40000,
+									},
+									costCNY: 3.12,
+								},
+								'deepseek-v4-pro': {
+									usage: {
+										uncachedInputTokens: 10000,
+										cacheReadTokens: 100000,
+										cacheWriteTokens: 0,
+										outputTokens: 5000,
+									},
+									costCNY: 1.27,
+								},
+							},
+							usage: { uncachedInputTokens: 70000, cacheReadTokens: 2040000, cacheWriteTokens: 0, outputTokens: 45000 },
+							totals: { costCNY: 4.79, sessionCount: 2, tokenTotal: 1000 },
+						}
+					: {
+							ok: true,
+							now: '2026-09-02T02:00:00.000Z',
+							balance: { state: 'ok', currency: 'CNY', total: 12.34, granted: 0, toppedUp: 12.34 },
+							pricing: {},
+							tier: { peak: true, label: '高峰时段' },
+							totals: { costCNY: 1.5, sessionCount: 2, tokenTotal: 1000 },
+							// 账本里该会话的**已计价**金额（按各阶段模型增量计价）
+							session: {
+								id: 's',
+								model: 'deepseek-flash',
+								costCNY: 3.64,
+								usage: null,
+								byModel: {
+									'deepseek-flash': { usage: { outputTokens: 40000 }, costCNY: 3.12 },
+									'deepseek-v4-pro': { usage: { outputTokens: 5000 }, costCNY: 1.27 },
+								},
+								updatedAt: '2026-09-02T01:59:00.000Z',
+							},
+						},
+			text: async () => '{}',
+		});
+	},
 });
+
+/** 触发所有已登记的 setTimeout 回调（mock 定时器不会自动运行）。 */
+function runTimeouts() {
+	for (const [id, timer] of [...liveTimers]) {
+		if (timer.kind === 'timeout') {
+			liveTimers.delete(id);
+			timer.fn();
+		}
+	}
+}
 vm.runInContext(source, context, { filename: 'client.js' });
 
 console.log('\n[1] bundle 注册');
@@ -374,6 +445,97 @@ console.log('\n[8] 响应式模型跟随（切换模型即时生效）');
 	const last = writes.at(-1);
 	check('切换模型后模型状态即时更新为 v4-pro', last?.name === 'deepseek-v4-pro', JSON.stringify(last));
 	check('更新由订阅回调驱动（无需轮询）', writes.length > 0, `${writes.length} 次 setState`);
+}
+
+// ── 9. 常驻上报（不打开「用量」面板也会写入账本） ──────────────────────
+console.log('\n[9] 常驻用量上报（本次修复）');
+{
+	const dock = slotRegistrations.find((r) => r.options.name === 'conversation.input.dock');
+	const countReports = () => fetchCalls.filter((c) => c.url.includes('/usage-monitor/report')).length;
+	const before = countReports();
+	// 渲染 dock 条（带非零用量）→ hook 注册延迟上报 → 手动推进定时器
+	dock.component({
+		...(dock.options.inject ? dock.options.inject('s-report') : {}),
+		useProjection: () => usageProjection,
+		sessionId: 's-report',
+	});
+	runTimeouts();
+	await new Promise((resolve) => process.nextTick(resolve));
+	check('dock 条触发上报（无需打开面板）', countReports() > before, `${before} → ${countReports()}`);
+	const last = fetchCalls.filter((c) => c.url.includes('/usage-monitor/report')).at(-1);
+	const payload = last?.options?.body ? JSON.parse(last.options.body) : null;
+	check(
+		'上报体含会话 id 与四桶用量',
+		payload?.sessionId === 's-report' && typeof payload?.usage?.outputTokens === 'number',
+		JSON.stringify(payload)?.slice(0, 130),
+	);
+	check(
+		'上报使用 JSON 媒体类型（服务端要求）',
+		String(last?.options?.headers?.['content-type']).includes('application/json'),
+		'',
+	);
+}
+
+// ── 10. 本会话花费的计价来源（修复：切换模型不再跳变） ─────────────────
+console.log('\n[10] 本会话花费取账本金额（切换模型不跳变）');
+{
+	const { sessionCostOf } = exportsObject.__internal ?? {};
+	check('导出了 sessionCostOf', typeof sessionCostOf === 'function');
+	if (typeof sessionCostOf === 'function') {
+		// 场景：真实账本 ¥3.64；若按 Pro 重算整段历史会得到 ¥18.44
+		const asPro = sessionCostOf({ costCNY: 3.64 }, 18.44);
+		check(
+			'账本存在时用账本金额（不被按 Pro 的本地估算带偏）',
+			asPro.cost === 3.64 && asPro.fromLedger === true,
+			JSON.stringify(asPro),
+		);
+		const asFlash = sessionCostOf({ costCNY: 3.64 }, 3.61);
+		check('切换模型后同一会话金额保持 3.64 不变', asFlash.cost === 3.64, String(asFlash.cost));
+		const noLedger = sessionCostOf(null, 3.61);
+		check(
+			'账本还没有该会话时退回本地估算并标注来源',
+			noLedger.cost === 3.61 && noLedger.fromLedger === false,
+			JSON.stringify(noLedger),
+		);
+		const emptyLedger = sessionCostOf({}, 0.5);
+		check('空记录时同样安全退回', emptyLedger.cost === 0.5 && emptyLedger.fromLedger === false, JSON.stringify(emptyLedger));
+	}
+
+	// 时序回归：上报响应通常**先于**数据端点返回（前者挂载即发，后者异步加载）。
+	// 那时 dashboard 仍为 null —— 账本金额必须被独立记录，否则会退回本地估算而再次跳变。
+	const writesBefore = stateWrites.length;
+	const dock = slotRegistrations.find((r) => r.options.name === 'conversation.input.dock');
+	dock.component({
+		...(dock.options.inject ? dock.options.inject('s-ledger') : {}),
+		useProjection: () => usageProjection,
+		sessionId: 's-ledger',
+	});
+	runTimeouts();
+	await new Promise((resolve) => setImmediate(resolve));
+	const ledgerWrite = stateWrites
+		.slice(writesBefore)
+		.find((write) => write && typeof write === 'object' && write.costCNY === 3.64);
+	check(
+		'上报响应到达即记录账本金额（不依赖数据端点先加载）',
+		ledgerWrite !== undefined,
+		JSON.stringify(ledgerWrite),
+	);
+
+	// 按模型明细：账本 byModel 到达后，面板应展示各模型分别花了多少
+	const panel = slotRegistrations.find((r) => r.options.name === 'conversation.view');
+	const panelTree = panel.component({
+		...(panel.options.inject ? panel.options.inject('s-ledger') : {}),
+		useProjection: () => usageProjection,
+		sessionId: 's-ledger',
+	});
+	const panelText = flattenText(panelTree);
+	check('面板展示「按模型明细」', panelText.includes('按模型明细'), '');
+	check('明细含 Flash 与 Pro 两行', panelText.includes('Flash') && panelText.includes('Pro'), '');
+	check(
+		'明细金额来自账本分桶（¥3.12 / ¥1.27）',
+		panelText.includes('¥3.12') && panelText.includes('¥1.27'),
+		panelText.match(/¥[0-9.]+/g)?.slice(0, 8).join(' '),
+	);
 }
 
 // 释放 React effect（清理各组件注册的定时器，避免挂住进程）

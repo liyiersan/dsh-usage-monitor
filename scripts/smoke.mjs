@@ -169,6 +169,25 @@ console.log('\n[2] POST /usage-monitor/report');
 	const expected = peak ? 0.04 + 0.12 + 0.32 : 0.02 + 0.06 + 0.16;
 	console.log(`  手算第一次（${peak ? '高峰' : '空闲'}）：${expected} vs 实际 ${first.payload.costCNY?.toFixed(6)}`);
 	console.log(Math.abs(first.payload.costCNY - expected) < 1e-9 ? '  ✅ 金额与手算一致' : '  ❌ 金额不符');
+
+	// 按模型分桶（新功能）：flash / pro 的 token 与金额分别记账
+	const flashBucket = first.payload.byModel?.['deepseek-flash'];
+	const bucketTokens = flashBucket
+		? flashBucket.usage.uncachedInputTokens + flashBucket.usage.cacheReadTokens + flashBucket.usage.outputTokens
+		: 0;
+	console.log(
+		`  会话 A 分桶: [${Object.keys(first.payload.byModel ?? {}).join(', ')}] flash 桶 ¥${flashBucket?.costCNY?.toFixed(6)} / ${bucketTokens} tokens`,
+	);
+	console.log(flashBucket ? '  ✅ 按模型分桶生效' : '  ❌ 分桶缺失');
+
+	const proBucket = other.payload.byModel?.['deepseek-v4-pro'];
+	console.log(`  会话 B 分桶: [${Object.keys(other.payload.byModel ?? {}).join(', ')}] pro 桶 ¥${proBucket?.costCNY?.toFixed(6)}`);
+	console.log(proBucket ? '  ✅ 另一会话独立分桶（Pro）' : '  ❌ Pro 分桶缺失');
+
+	const modelTotals = Object.entries(other.payload.totals?.byModel ?? {})
+		.map(([key, value]) => `${key}=¥${Number(value.costCNY).toFixed(4)}/${value.tokenTotal}tok`)
+		.join('  |  ');
+	console.log('  累计按模型拆分:', modelTotals);
 }
 
 // ── 3. 账本落盘 ────────────────────────────────────────────────────────
